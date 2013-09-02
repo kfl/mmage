@@ -10,8 +10,13 @@ What works:
 * Showing images works
 * Setting individual pixels works
 * Creating (make) a blank image
-* transform.
+* transform works
 
 Not implemented:
 * blit, transform{i,Rect,Recti}
+* Documentation
 
+Unknown:
+* Is performance usable? (small tests suggests that it is)
+* Is the API right?
+* Will it work with the Android port of Moscow ML?
