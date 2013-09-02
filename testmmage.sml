@@ -14,9 +14,8 @@ fun reddenprofile () =
     end
 
 fun whiteboxtest () =
-    let val whitebox = Mmage.make(500, 500, {red=0,green=0,blue=0})
+    let val whitebox = Mmage.make(500, 500, {red=250,green=250,blue=250})
     in  app Mmage.show [ whitebox
-                       , Mmage.transform(whitebox, Mmage.getColour)
                        , Mmage.transform(whitebox, redden)
                        ]
     end

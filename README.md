@@ -8,11 +8,9 @@ SDL2. Hopefully to be used in Introduction to Programming, 2013.
 What works:
 * Reading from files works
 * Showing images works
-* Setting individual pixels works somewhat
-
-Not working:
-* Creating (make) a blank image?!?
-* transform. When addressing pixels in 24bit images something is not right.
+* Setting individual pixels works
+* Creating (make) a blank image
+* transform.
 
 Not implemented:
 * blit, transform{i,Rect,Recti}

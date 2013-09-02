@@ -18,6 +18,7 @@ local
     fun app5 name = Dynlib.app5 (symb ("mmage_"^name))
 
     prim_type surface
+    prim_type renderer
 
     val init : unit -> unit = app1 "init"
     val image_load : string -> surface = app1 "image_load"
@@ -30,9 +31,10 @@ local
     val surface_lock : surface -> unit = app1 "surface_lock"
     val surface_unlock : surface -> unit = app1 "surface_unlock"
     val get_rgb_ : surface -> int -> int * int * int = app2 "get_rgb"
-    val set_rgb_ : surface -> int -> int -> int -> int -> unit = app5 "set_rgb"
+    val set_rgb_ : renderer -> int -> int -> (int * int * int) -> unit = app4 "set_rgb"
+    val surface_renderer : surface -> renderer = app1 "surface_renderer"
     val copy_surface : surface -> surface = app1 "copy_surface"
-    val create_surface : int -> int -> int -> int -> int -> surface = app2 "create_surface"
+    val create_surface : int -> int -> int -> int -> int -> surface = app5 "create_surface"
 
     fun check_index surface x y = x >= 0 andalso x < get_width surface
                                   andalso y >= 0 andalso x < get_height surface
@@ -79,25 +81,39 @@ val height: image -> int = get_height
 type index = int * int
 type rect = index * index
 
-fun withUnlocked img f = ( surface_unlock img
+fun withLocked img f = ( surface_lock img
                          ; (f () before surface_unlock img)
                            handle ?? => (surface_unlock img; raise ??))
 
+fun toByteIndex surface x y =
+    let val bpp = get_bytes_per_pixel surface
+        val pitch = get_pitch surface
+    in  y * pitch + x * bpp
+    end
+
 val transform      : image * (pixel -> colour) -> image
     = fn (img, f) =>
-         let val bpp = get_bytes_per_pixel img
-             val bytes = width img * height img * bpp
-             val clone = copy_surface img
-             fun loop i = if i < bytes then let val (r,g,b) = normalise (f (i, img))
-                                            in set_rgb_ clone i r g b
-                                             ; loop (i+bpp)
-                                            end
-                          else ()
-         in  withUnlocked img (fn () =>
-             withUnlocked clone (fn () =>
-             loop 0))
+         let val clone = copy_surface img
+             val renderer = surface_renderer clone
+             val w = width img
+             val h = height img
+             val idx = toByteIndex img
+             fun loopy j =
+                 if j < h then let fun loopx i = if i < w then
+                                                     let val col = normalise (f (idx i j, img))
+                                                     in  set_rgb_ renderer i j col
+                                                       ; loopx(i+1)
+                                                     end
+                                                 else ()
+                               in  loopx 0
+                                 ; loopy (j+1)
+                               end
+                 else ()
+         in  withLocked img (fn () =>
+             loopy 0)
            ; clone
          end
+
 
 val transformi     : image * (pixel * index -> colour) -> image = notimplemented "transformi"
 val transformRect  : image * rect * (pixel -> colour) -> image = notimplemented "transformRect"
@@ -106,14 +122,12 @@ val transformRecti : image * rect * (pixel * index -> colour) -> image = notimpl
 val blit : image * rect * image * index -> image = notimplemented "blit"
 
 val setPixel : image * index * colour -> image
-    = fn (img, (x,y), col) =>
-         let val (r,g,b) = normalise col
-             val bpp = get_bytes_per_pixel img
-             val pitch = get_pitch img
-             val idx = y * pitch + x * bpp
+    = fn (img, (x,y), colour) =>
+         let val col = normalise colour
              val clone = copy_surface img
+             val renderer = surface_renderer clone
          in  check_index img x y
-           ; withUnlocked clone (fn () => set_rgb_ clone idx r g b)
+           ; set_rgb_ renderer x y col
            ; clone
          end
 

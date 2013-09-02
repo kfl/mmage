@@ -22,6 +22,10 @@
 #define Surface_val(x) ((SDL_Surface *) Field(x, 1))
 #define Surface_val_lv(x) (Field(x, 1))
 
+#define Renderer_val(x) ((SDL_Renderer *) Field(x, 1))
+#define Renderer_val_lv(x) (Field(x, 1))
+
+
 static INLINE value mmage_alloc_final(mlsize_t len, final_fun fun) {
   return alloc_final(len, fun, 0, 1);
 }
@@ -34,7 +38,20 @@ static void mmage_surface_finalize(value obj) {
 static INLINE value mmage_make_surface(SDL_Surface *surface) {
   value res;
   res = mmage_alloc_final(2, &mmage_surface_finalize);
-  Surface_val_lv(res) = surface;
+  Surface_val_lv(res) = (value) surface;
+  return res;
+}
+
+
+static void mmage_renderer_finalize(value obj) {
+  SDL_DestroyRenderer(Renderer_val(obj));
+}
+
+
+static INLINE value mmage_make_renderer(SDL_Renderer *renderer) {
+  value res;
+  res = mmage_alloc_final(2, &mmage_renderer_finalize);
+  Renderer_val_lv(res) = (value) renderer;
   return res;
 }
 
@@ -58,7 +75,9 @@ EXTERNML value mmage_get_bytes_per_pixel(value surface) {
 
 EXTERNML value mmage_copy_surface(value surface) {
   SDL_Surface *srfc1 = Surface_val(surface);
-  SDL_Surface *srfc2 = SDL_ConvertSurface(srfc1, srfc1->format, srfc1->flags);
+  SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA8888);
+  SDL_Surface *srfc2 = SDL_ConvertSurface(srfc1, format, 0);
+  SDL_FreeFormat(format);
   return mmage_make_surface(srfc2);
 }
 
@@ -72,6 +91,11 @@ EXTERNML value mmage_surface_unlock(value surface) {
   return Val_unit;
 }
 
+EXTERNML value mmage_surface_renderer(value surface) {
+  SDL_Renderer *renderer = SDL_CreateSoftwareRenderer(Surface_val(surface));
+  if(renderer == NULL) failwith((char*) SDL_GetError());
+  return mmage_make_renderer(renderer);
+}
 
 EXTERNML value mmage_get_rgb(value surface, value idx) {
   // Assumes that surface is locked
@@ -86,8 +110,8 @@ EXTERNML value mmage_get_rgb(value surface, value idx) {
   uint8_t b;
 
   SDL_GetRGB( pixel, surf->format,  &r, &g, &b );
-  //printf("%d, read %d, %d, %d\n", Long_val(idx), r,g,b);
-
+  //printf("%d, read %x, %x, %x\n", Long_val(idx), r,g,b);
+  //fflush(stdout);
 
   value res = alloc_tuple(3);
   Field(res, 0) = Val_long(r);
@@ -96,63 +120,43 @@ EXTERNML value mmage_get_rgb(value surface, value idx) {
   return res;
 }
 
-EXTERNML value mmage_set_rgb(value surface, value idx, value r, value g, value b) {
-  // Assumes that surface is locked
-  SDL_Surface *surf = Surface_val(surface);
 
-  // In an ideal world we could just write this
-  /* ((uint8_t *)surf->pixels)[ Long_val(idx) ] = SDL_MapRGB( surf->format, */
-  /*                                                          Long_val(r), */
-  /*                                                          Long_val(g), */
-  /*                                                          Long_val(b) ); */
 
-  uint32_t pixel = SDL_MapRGB( surf->format,
-                               Long_val(r),
-                               Long_val(g),
-                               Long_val(b) );
-  uint8_t *p = ((uint8_t *)surf->pixels) + Long_val(idx);
+EXTERNML value mmage_set_rgb(value rend, value x, value y, value col) {
+  uint8_t r = Long_val(Field(col, 0));
+  uint8_t g = Long_val(Field(col, 1));
+  uint8_t b = Long_val(Field(col, 2));
 
-  switch(surf->format->BytesPerPixel) {
-  case 1:
-    *p = (uint8_t) pixel;
-    break;
-  case 2:
-    *p = (uint16_t) pixel;
-    break;
-  case 3:
-    /* if(SDL_BYTEORDER == SDL_BIG_ENDIAN) { */
-    /*   printf("BIG\n"); */
-      p[2] = (uint8_t) pixel & 0x0000ff;
-      p[1] = (uint8_t) (pixel & 0x00ff00) >> 8;
-      p[0] = (uint8_t) (pixel & 0x0000ff) >> 16;
-    /* } else { */
-    /*   p[0] = (uint8_t) (pixel & 0x0000ff); */
-    /*   p[1] = (uint8_t) ((pixel & 0x00ff00) >> 8); */
-    /*   p[2] = (uint8_t) ((pixel & 0x0000ff) >> 16); */
-    /* } */
-    break;
-  case 4:
-    *(uint32_t *)p = pixel;
-    break;
-  default: break;
-  }
+  SDL_Renderer *renderer = Renderer_val(rend);
+
+  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+  int err = 0;
+  err = SDL_SetRenderDrawColor(renderer, r, g, b, SDL_ALPHA_OPAQUE);
+  if (err < 0) failwith((char *) SDL_GetError());
+
+  err = SDL_RenderDrawPoint(renderer, Long_val(x), Long_val(y));
+  if (err < 0) failwith((char *) SDL_GetError());
 
   return Val_unit;
 }
 
 EXTERNML value mmage_create_surface(value width, value height, value r, value g, value b) {
   /* use the default masks for the depth: */
-  SDL_Surface *surface = SDL_CreateRGBSurface(SDL_SWSURFACE,Long_val(width),Long_val(height),32,0,0,0,0);
+  SDL_Surface *surface = SDL_CreateRGBSurface(0,Long_val(width),Long_val(height),32,0,0,0,0);
   if (surface == NULL) failwith((char *) SDL_GetError());
+
+  SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
 
   uint32_t colour = SDL_MapRGB( surface->format,
                                 Long_val(r),
                                 Long_val(g),
                                 Long_val(b) );
   //  printf("Colour: %X\n", colour);
+  //printf("colour %X, %x %x %x\n", colour, Long_val(r), Long_val(g), Long_val(b));
+
   int err = SDL_FillRect(surface, NULL, colour);
   if (err < 0) failwith((char *) SDL_GetError());
-
 
   return mmage_make_surface(surface);
 }
@@ -194,6 +198,7 @@ EXTERNML value mmage_show(value surf) {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;
+
     window = SDL_CreateWindow("Mmage Viewer",            //    window title
                               SDL_WINDOWPOS_CENTERED,    //    initial x position
                               SDL_WINDOWPOS_CENTERED,    //    initial y position
